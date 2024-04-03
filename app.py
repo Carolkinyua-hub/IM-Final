@@ -1,70 +1,71 @@
 import streamlit as st
 import pandas as pd
-import joblib
 import folium
-from streamlit_folium import folium_static
-from sklearn.preprocessing import StandardScaler  # or import your scaler
+from sklearn.preprocessing import StandardScaler
+from sklearn.externals import joblib
 
-# Function to get color based on vaccination status
-def get_color(Vaccination_Status):
-    if Vaccination_Status == 'Full_Defaulter':
-        return 'red'
-    elif Vaccination_Status == 'Partial_Defaulter':
-        return 'orange'
-    else:
-        return 'green'
+# Load the trained model
+classifier_model = joblib.load('ridge_classifier_model.joblib')
 
-# Load your trained model (ensure the path is accessible from your app's deployment environment)
-model_path = 'random_forest_model_updated_2.0.joblib'
-model = joblib.load(model_path)
+# Function for data preprocessing
+def preprocess_data(data):
+    # Drop any missing values
+    data.dropna(inplace=True)
 
-# Assuming the scaler is saved similarly
-scaler_path = 'X_validation_scaled.joblib'
-scaler = joblib.load(scaler_path)
+    # Perform feature scaling
+    scaler = StandardScaler()
+    numerical_cols = ['number_of_pentavalent_doses_received', 'number_of_pneumococcal_doses_received', 
+                      'number_of_rotavirus_doses_received', 'number_of_measles_doses_received', 
+                      'number_of_polio_doses_received','latitude', 'longitude']
+    data[numerical_cols] = scaler.fit_transform(data[numerical_cols])
+    return data
 
-# Streamlit app title
-st.title('Vaccination Status Prediction')
+# Function to load and preprocess the validation dataset
+def load_validation_data(file_path):
+    df = pd.read_csv(file_path)
+    df = preprocess_data(df)
+    return df
 
-# Upload CSV file
-uploaded_file = st.file_uploader("Choose a file")
-if uploaded_file is not None:
-    # Assuming the uploaded file is a CSV, adjust for other formats
-    df2 = pd.read_csv(uploaded_file)
+def main():
+    st.title('Vaccination Status Prediction and Visualization')
 
-# Select columns for prediction
-    defaulter_pred = df2[['number_of_polio_doses_received',
-                      'number_of_pentavalen_doses_received',
-                      'number_of_pneumococcal_doses_received',
-                      'number_of_rotavirus_dosers_received',
-                      'latitude', 'longitude',
-                      'number_of_measles_doses_received']]
+    # Upload validation dataset
+    st.subheader('Upload Validation Dataset')
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
-# Scale features using the scaler object
-    X_validation_scaled = defaulter_pred
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.write(df)
 
+        # Preprocess and make predictions
+        df = preprocess_data(df)
+        y_pred = classifier_model.predict(df)
+        df['Predicted_Vaccination_Status'] = y_pred
 
-    # Make predictions
-    y_pred = model.predict(X_validation_scaled)
+        # Mapping predictions to status labels
+        status_mapping = {0: 'Full_Defaulter', 1: 'Partial_Defaulter', 2: 'Non_Defaulter'}
+        df['Predicted_Status'] = [status_mapping[pred] for pred in y_pred]
 
-    # Add predictions to the DataFrame
-    status_mapping = {0: 'Full_Defaulter', 1: 'Partial_Defaulter', 2: 'Non_Defaulter'}
-    df2['Predicted_Status'] = [status_mapping[pred] for pred in y_pred]
+        # Create map
+        st.subheader('Predicted Vaccination Status Visualization')
+        mean_lat = df['latitude'].mean()
+        mean_long = df['longitude'].mean()
+        vaccination_map = folium.Map(location=[mean_lat, mean_long], zoom_start=6)
 
-    # Generate map
-    mean_lat = df2['latitude'].mean()
-    mean_long = df2['longitude'].mean()
-    vaccination_map = folium.Map(location=[mean_lat, mean_long], zoom_start=6)
+        # Add points to the map based on the predicted vaccination status
+        for idx, row in df.iterrows():
+            folium.CircleMarker(
+                location=[row['latitude'], row['longitude']],
+                radius=5,
+                color=get_color(row['Predicted_Status']),
+                fill=True,
+                fill_color=get_color(row['Predicted_Status']),
+                fill_opacity=0.7,
+                popup=row['Predicted_Status']  # Adjust if you want to display something else in the popup
+            ).add_to(vaccination_map)
 
-    for idx, row in df2.iterrows():
-        folium.CircleMarker(
-            location=[row['latitude'], row['longitude']],
-            radius=5,
-            color=get_color(row['Predicted_Status']),
-            fill=True,
-            fill_color=get_color(row['Predicted_Status']),
-            fill_opacity=0.7,
-            popup=row['Predicted_Status']
-        ).add_to(vaccination_map)
+        # Display the map
+        folium_static(vaccination_map)
 
-    # Display map in Streamlit
-    folium_static(vaccination_map)
+if __name__ == '__main__':
+    main()
