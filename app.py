@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import folium
 from sklearn.preprocessing import StandardScaler
-from sklearn.externals import joblib
+from sklearn import joblib
 
 # Load the trained model
 classifier_model = joblib.load('ridge_classifier_model.joblib')
